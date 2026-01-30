@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>約分シューティング: RETRO</title>
+    <!-- ドットフォントの読み込み -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            color: #0f0; /* 昔のグリーンモニタ風 */
+            font-family: 'DotGothic16', monospace;
+            touch-action: none;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        #game-area {
+            position: relative;
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #000;
+            overflow: hidden;
+            border-bottom: 2px solid #333;
+        }
+
+        /* ブラウン管風スキャンラインエフェクト */
+        #scanline-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        canvas {
+            background-color: #000;
+            /* ほんのり発光させる */
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2); 
+            max-width: 100%;
+            height: 100%;
+            display: block;
+            image-rendering: pixelated; /* ドットをくっきり */
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            pointer-events: none;
+            font-size: 24px;
+            font-weight: bold;
+            z-index: 10;
+            text-shadow: 2px 2px 0 #000;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            color: #fff;
+            font-family: 'Press Start 2P', cursive; /* 英数字はレトロゲームフォント */
+        }
+        
+        #pause-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 30;
+            background-color: #000;
+            border: 2px solid #0f0;
+            color: #0f0;
+            padding: 8px 16px;
+            font-family: 'DotGothic16', monospace;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 0 5px #0f0;
+            display: none;
+        }
+        #pause-btn:active {
+            background-color: #0f0;
+            color: #000;
+        }
+        
+        #life-container {
+            position: absolute;
+            top: 60px;
+            right: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 10;
+        }
+        /* ライフをドット絵ハート風に */
+        .life-heart {
+            width: 24px;
+            height: 24px;
+            background-color: #f0f; /* ネオンピンク */
+            box-shadow: 0 0 8px #f0f;
+            /* ドット絵風に見せるクリップパス */
+            clip-path: polygon(
+                20% 0%, 40% 0%, 50% 20%, 60% 0%, 80% 0%, 
+                100% 20%, 100% 50%, 50% 100%, 0% 50%, 0% 20%
+            );
+            transition: opacity 0.2s;
+        }
+        .life-lost {
+            background-color: #333;
+            box-shadow: none;
+            opacity: 0.3;
+        }
+
+        #level-notify {
+            font-size: 1.5rem;
+            color: #ffeb3b;
+            opacity: 0;
+            transition: opacity 0.1s; /* パッと出る */
+            text-shadow: 2px 2px 0 #000;
+            text-align: center;
+            font-family: 'DotGothic16', monospace;
+        }
+        .show-notify { opacity: 1 !important; animation: blink 0.2s infinite; }
+        @keyframes blink { 0% {opacity:1} 50% {opacity:0} 100% {opacity:1} }
+        
+        #boss-warning {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: 'Press Start 2P', cursive;
+            font-size: 3rem;
+            color: #f00;
+            text-shadow: 4px 4px 0 #500;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 25;
+            white-space: nowrap;
+        }
+        .boss-anim {
+            animation: bossFlash 2s steps(4); /* カクカクさせる */
+        }
+        @keyframes bossFlash {
+            0% { opacity: 0; visibility: hidden; }
+            10% { opacity: 1; visibility: visible; }
+            20% { opacity: 0; visibility: hidden; }
+            30% { opacity: 1; visibility: visible; }
+            40% { opacity: 0; visibility: hidden; }
+            50% { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1.2); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
+        }
+
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            transition: opacity 0.3s;
+        }
+        /* グリッド背景 */
+        .screen::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 50, 0, 0.5) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 50, 0, 0.5) 1px, transparent 1px);
+            background-size: 20px 20px;
+            z-index: -1;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .penalty-flash {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(255, 0, 0, 0.5);
+            pointer-events: none;
+            z-index: 15;
+            display: none;
+        }
+        .penalty-active {
+            display: block;
+            animation: flash 0.1s steps(2);
+        }
+
+        h1 {
+            margin: 0 0 30px 0;
+            font-size: 3rem;
+            color: #0f0;
+            text-shadow: 4px 4px 0 #050;
+            text-align: center;
+            line-height: 1.2;
+            font-family: 'DotGothic16', sans-serif;
+            letter-spacing: 5px;
+        }
+        
+        .sub-text {
+            font-size: 1.2rem;
+            margin-bottom: 40px;
+            text-align: center;
+            color: #ccc;
+            padding: 0 20px;
+            line-height: 1.8;
+        }
+
+        /* アーケードボタン風 */
+        .big-btn {
+            padding: 20px 60px;
+            font-size: 1.5rem;
+            font-family: 'Press Start 2P', cursive;
+            background-color: #000;
+            color: #0f0;
+            border: 4px solid #0f0;
+            box-shadow: 0 0 10px #0f0, inset 0 0 10px #0f0;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.1s;
+        }
+        .big-btn:hover {
+            background-color: #0f0;
+            color: #000;
+        }
+        .big-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Control Panel */
+        #controls-container {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #111;
+            border-top: 4px solid #333;
+            display: flex;
+            flex-direction: column;
+            padding: 8px;
+            box-sizing: border-box;
+            z-index: 30;
+            touch-action: manipulation;
+        }
+
+        .control-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
+            padding: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        #special-controls {
+            border-top: 2px dashed #444;
+            background-color: #0a0a0a;
+            min-height: 50px;
+            margin-top: 4px;
+            padding-top: 8px;
+        }
+
+        .ctrl-btn {
+            border: 2px solid #555;
+            background-color: #222;
+            color: #fff;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.8rem;
+            border-radius: 4px; /* 角を少し丸く */
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            user-select: none;
+            box-shadow: 0 4px 0 #000; /* 立体感 */
+            transition: transform 0.05s, box-shadow 0.05s;
+            flex: 1;
+            max-width: 80px;
+            height: 50px;
+            margin: 0 2px;
+        }
+        
+        .ctrl-btn.unlocked {
+            display: flex;
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        
+        .ctrl-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #000;
+        }
+
+        /* ネオンカラーの定義 */
+        /* Standard Primes */
+        .btn-2 { border-color: #e53935; color: #e53935; text-shadow: 0 0 5px #e53935; }
+        .btn-3 { border-color: #1e88e5; color: #1e88e5; text-shadow: 0 0 5px #1e88e5; }
+        .btn-5 { border-color: #fdd835; color: #fdd835; text-shadow: 0 0 5px #fdd835; }
+        .btn-7 { border-color: #d000f0; color: #d000f0; text-shadow: 0 0 5px #d000f0; }
+        .btn-11 { border-color: #00e5ff; color: #00e5ff; text-shadow: 0 0 5px #00e5ff; }
+        .btn-13 { border-color: #ff9100; color: #ff9100; text-shadow: 0 0 5px #ff9100; }
+
+        /* Special Buttons - 塗りつぶしで強調 */
+        .btn-special {
+            background-color: #333;
+            border-width: 2px;
+        }
+        .btn-4 { background-color: #1a237e; border-color: #536dfe; }
+        .btn-6 { background-color: #006064; border-color: #00bcd4; }
+        .btn-8 { background-color: #311b92; border-color: #7c4dff; }
+        .btn-9 { background-color: #880e4f; border-color: #f06292; }
+        .btn-10 { background-color: #1b5e20; border-color: #66bb6a; }
+        .btn-12 { background-color: #e65100; border-color: #ffa726; }
+
+        .key-hint {
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            font-size: 0.4rem;
+            color: #888;
+        }
+
+        .guide-text {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            color: #0f0;
+            text-shadow: 0 0 5px #0f0;
+            pointer-events: none;
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+        
+        #miss-feedback {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: 'Press Start 2P', cursive;
+            font-size: 100px;
+            color: #f00;
+            text-shadow: 4px 4px 0 #500;
+            pointer-events: none;
+            opacity: 0;
+            z-index: 12;
+        }
+        .show-miss { animation: popMiss 0.2s ease-out; }
+
+    </style>
+</head>
+<body>
+
+<div id="game-area">
+    <!-- 走査線オーバーレイ -->
+    <div id="scanline-overlay"></div>
+
+    <div id="ui-layer">
+        <div>SCORE: <span id="score">0</span></div>
+        <div id="level-notify">NEW BUTTON!</div>
+    </div>
+    
+    <button id="pause-btn" onclick="game.togglePause()">PAUSE</button>
+    
+    <div id="life-container">
+        <div class="life-heart" id="life-1"></div>
+        <div class="life-heart" id="life-2"></div>
+        <div class="life-heart" id="life-3"></div>
+        <div class="life-heart" id="life-4"></div>
+        <div class="life-heart" id="life-5"></div>
+    </div>
+    
+    <div id="boss-warning">WARNING!</div>
+    <div id="penalty-overlay" class="penalty-flash"></div>
+    <div id="miss-feedback">MISS</div>
+    
+    <canvas id="gameCanvas"></canvas>
+    
+    <div class="guide-text">SHOOT THE NUMBERS WITH DIVISORS</div>
+
+    <div id="start-screen" class="screen">
+        <h1>PRIME<br>SHOOTER</h1>
+        <p class="sub-text">
+            [ MISSION ]<br>
+            迫りくる数字を「割り切れる数」で撃て！<br>
+            <span style="color:#ffeb3b;">PAIR BOSS</span> は共通の約数で撃破せよ。<br>
+            <br>
+            <span style="color:#f0f; font-size:0.8em;">PUSH START TO PLAY</span>
+        </p>
+        <button class="big-btn" onclick="game.start()">START</button>
+    </div>
+    
+    <div id="pause-screen" class="screen hidden">
+        <h1>PAUSED</h1>
+        <button class="big-btn" onclick="game.togglePause()">RESUME</button>
+    </div>
+
+    <div id="game-over-screen" class="screen hidden">
+        <h1 style="color: #f00;">GAME OVER</h1>
+        <p class="sub-text">
+            SCORE: <span id="final-score" style="font-size: 1.5em; font-family: 'Press Start 2P'; color: #ffeb3b;">0</span><br>
+        </p>
+        <button class="big-btn" onclick="game.start()">RETRY</button>
+    </div>
+</div>
+
+<div id="controls-container">
+    <div id="prime-controls" class="control-row">
+        <button id="btn-2" class="ctrl-btn btn-2" onpointerdown="game.shoot(2)">2</button>
+        <button id="btn-3" class="ctrl-btn btn-3" onpointerdown="game.shoot(3)">3</button>
+        <button id="btn-5" class="ctrl-btn btn-5" onpointerdown="game.shoot(5)">5</button>
+        <button id="btn-7" class="ctrl-btn btn-7" onpointerdown="game.shoot(7)">7</button>
+        <button id="btn-11" class="ctrl-btn btn-11" onpointerdown="game.shoot(11)">11<span class="key-hint">Q</span></button>
+        <button id="btn-13" class="ctrl-btn btn-13" onpointerdown="game.shoot(13)">13<span class="key-hint">W</span></button>
+    </div>
+    
+    <div id="special-controls" class="control-row">
+        <button id="btn-4" class="ctrl-btn btn-special btn-4" onpointerdown="game.shoot(4)">4</button>
+        <button id="btn-6" class="ctrl-btn btn-special btn-6" onpointerdown="game.shoot(6)">6</button>
+        <button id="btn-9" class="ctrl-btn btn-special btn-9" onpointerdown="game.shoot(9)">9</button>
+        <button id="btn-8" class="ctrl-btn btn-special btn-8" onpointerdown="game.shoot(8)">8</button>
+        <button id="btn-10" class="ctrl-btn btn-special btn-10" onpointerdown="game.shoot(10)">10</button>
+        <button id="btn-12" class="ctrl-btn btn-special btn-12" onpointerdown="game.shoot(12)">12</button>
+    </div>
+</div>
+
+<script>
+    /**
+     * レトロ効果音マネージャー
+     * Web Audio APIを使用してシンセサイザー音を生成
+     */
+    class SoundManager {
+        constructor() {
+            this.ctx = null;
+            this.isMuted = false;
+        }
+
+        init() {
+            if (!this.ctx) {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            // ユーザーインタラクション後にResumeが必要
+            if (this.ctx.state === 'suspended') {
+                this.ctx.resume();
+            }
+        }
+
+        // 基本的なオシレーター再生関数
+        playTone(freq, type, duration, vol = 0.1, slide = 0) {
+            if (!this.ctx || this.isMuted) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+            if (slide !== 0) {
+                osc.frequency.exponentialRampToValueAtTime(freq + slide, this.ctx.currentTime + duration);
+            }
+
+            gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            
+            osc.start();
+            osc.stop(this.ctx.currentTime + duration);
+        }
+
+        // ノイズ生成（爆発音用）
+        playNoise(duration, vol = 0.2) {
+            if (!this.ctx || this.isMuted) return;
+            const bufferSize = this.ctx.sampleRate * duration;
+            const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+
+            const noise = this.ctx.createBufferSource();
+            noise.buffer = buffer;
+            
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+            
+            // ローパスフィルタで爆発っぽく
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 1000;
+
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.ctx.destination);
+            
+            noise.start();
+        }
+
+        playShoot() {
+            // ピューン (矩形波で高音から下がる)
+            this.playTone(800, 'square', 0.1, 0.1, -400);
+        }
+        
+        playSpecialShoot() {
+            // キュイーン (ノコギリ波で上がる)
+            this.playTone(400, 'sawtooth', 0.3, 0.1, 400);
+        }
+
+        playHit() {
+            // プッ (短い矩形波)
+            this.playTone(200, 'square', 0.05, 0.1);
+        }
+
+        playExplosion() {
+            // ザザザッ (ノイズ)
+            this.playNoise(0.3, 0.3);
+        }
+        
+        playBossExplosion() {
+            // ズドーーーン (長いノイズ)
+            this.playNoise(0.8, 0.5);
+        }
+
+        playLevelUp() {
+            // パララッ (メジャーコード)
+            this.playTone(440, 'square', 0.1, 0.1); // A
+            setTimeout(() => this.playTone(554, 'square', 0.1, 0.1), 100); // C#
+            setTimeout(() => this.playTone(659, 'square', 0.2, 0.1), 200); // E
+        }
+
+        playDamage() {
+            // ブーッ (低いノコギリ波)
+            this.playTone(100, 'sawtooth', 0.3, 0.3, -50);
+        }
+        
+        playError() {
+            // ブッ (短く低い)
+            this.playTone(80, 'square', 0.1, 0.2);
+        }
+    }
+
+    class Game {
+        constructor() {
+            this.canvas = document.getElementById('gameCanvas');
+            this.gameArea = document.getElementById('game-area');
+            this.ctx = this.canvas.getContext('2d');
+            this.scoreEl = document.getElementById('score');
+            this.finalScoreEl = document.getElementById('final-score');
+            this.levelNotifyEl = document.getElementById('level-notify');
+            this.bossWarningEl = document.getElementById('boss-warning');
+            this.startScreen = document.getElementById('start-screen');
+            this.pauseScreen = document.getElementById('pause-screen');
+            this.gameOverScreen = document.getElementById('game-over-screen');
+            this.penaltyOverlay = document.getElementById('penalty-overlay');
+            this.controlsContainer = document.getElementById('controls-container');
+            this.missFeedback = document.getElementById('miss-feedback');
+            this.pauseBtn = document.getElementById('pause-btn');
+            
+            this.sound = new SoundManager();
+
+            this.width = 0;
+            this.height = 0;
+            this.score = 0;
+            this.lives = 5;
+            this.isRunning = false;
+            this.isPaused = false;
+            this.animationId = null;
+            this.lastTime = 0;
+
+            this.spawnTimer = 0;
+            this.spawnInterval = 2500;
+            
+            this.player = { x: 0, y: 0, w: 40, h: 40 };
+            this.bullets = [];
+            this.enemies = [];
+            this.particles = [];
+            
+            this.activePrimes = []; 
+            this.unlockedButtons = new Set();
+            
+            this.progression = [
+                { score: 0, type: 'prime', value: 2 },
+                { score: 0, type: 'prime', value: 3 },
+                { score: 10, type: 'prime', value: 5 },
+                { score: 25, type: 'special', value: 6 },
+                { score: 25, type: 'special', value: 4 },
+                { score: 25, type: 'special', value: 9 },
+                { score: 45, type: 'prime', value: 7 },
+                { score: 65, type: 'special', value: 10 },
+                { score: 85, type: 'prime', value: 11 },
+                { score: 105, type: 'special', value: 12 },
+                { score: 125, type: 'prime', value: 13 },
+                { score: 145, type: 'special', value: 8 }
+            ];
+
+            this.combinations = {
+                4: [2, 2], 6: [2, 3], 8: [4, 2], 9: [3, 3], 10: [2, 5], 12: [6, 2]
+            };
+
+            this.queueBossSpawn = false;
+
+            window.addEventListener('resize', () => this.resize());
+            window.addEventListener('keydown', (e) => this.handleInput(e));
+            
+            this.resize();
+            this.updateButtonsUI();
+        }
+
+        resize() {
+            const container = document.getElementById('game-area');
+            this.width = container.clientWidth;
+            this.height = container.clientHeight;
+            this.canvas.width = this.width;
+            this.canvas.height = this.height;
+            this.player.x = this.width / 2;
+            this.player.y = this.height - 60;
+        }
+
+        start() {
+            this.sound.init(); // サウンド初期化
+            this.score = 0;
+            this.lives = 5;
+            this.scoreEl.innerText = 0;
+            this.updateLivesUI();
+            
+            this.isRunning = true;
+            this.isPaused = false;
+            this.spawnInterval = 2500;
+            this.spawnTimer = 0;
+            this.queueBossSpawn = false;
+            
+            this.bullets = [];
+            this.enemies = [];
+            this.particles = [];
+            
+            this.activePrimes = [];
+            this.unlockedButtons = new Set();
+            this.penaltyOverlay.classList.remove('penalty-active');
+
+            this.checkLevelProgression();
+
+            this.startScreen.classList.add('hidden');
+            this.pauseScreen.classList.add('hidden');
+            this.gameOverScreen.classList.add('hidden');
+            this.pauseBtn.style.display = 'block';
+            
+            this.lastTime = performance.now();
+            this.loop(this.lastTime);
+        }
+
+        togglePause() {
+            if (!this.isRunning) return;
+            this.isPaused = !this.isPaused;
+            
+            if (this.isPaused) {
+                this.pauseScreen.classList.remove('hidden');
+            } else {
+                this.pauseScreen.classList.add('hidden');
+                this.lastTime = performance.now();
+                this.loop(this.lastTime);
+            }
+        }
+        
+        updateLivesUI() {
+            for(let i=1; i<=5; i++) {
+                const heart = document.getElementById(`life-${i}`);
+                if(i <= this.lives) {
+                    heart.classList.remove('life-lost');
+                } else {
+                    heart.classList.add('life-lost');
+                }
+            }
+        }
+        
+        takeDamage() {
+            this.lives--;
+            this.updateLivesUI();
+            this.sound.playDamage(); // ダメージ音
+            
+            this.penaltyOverlay.classList.remove('penalty-active');
+            void this.penaltyOverlay.offsetWidth;
+            this.penaltyOverlay.classList.add('penalty-active');
+            
+            if (this.lives <= 0) {
+                this.stop();
+            }
+        }
+
+        checkLevelProgression() {
+            let updated = false;
+            let newButtonTexts = [];
+
+            this.progression.forEach(step => {
+                if (this.score >= step.score) {
+                    if (!this.unlockedButtons.has(step.value)) {
+                        this.unlockedButtons.add(step.value);
+                        if (step.type === 'prime') {
+                            if (!this.activePrimes.includes(step.value)) {
+                                this.activePrimes.push(step.value);
+                            }
+                        }
+                        updated = true;
+                        newButtonTexts.push(step.value);
+                    }
+                }
+            });
+
+            if (updated) {
+                this.updateButtonsUI();
+                if (this.score > 0) {
+                    this.sound.playLevelUp(); // レベルアップ音
+                    this.queueBossSpawn = true;
+                    const text = newButtonTexts.length > 1 ? 
+                        `BUTTONS [${newButtonTexts.join(', ')}] UNLOCKED!` : 
+                        `BUTTON [${newButtonTexts[0]}] UNLOCKED!`;
+                    this.showLevelNotify(text);
+                }
+            }
+        }
+
+        updateButtonsUI() {
+            const allBtns = [2, 3, 5, 7, 11, 13, 4, 6, 8, 9, 10, 12];
+            allBtns.forEach(val => {
+                const btn = document.getElementById(`btn-${val}`);
+                if (this.unlockedButtons.has(val)) {
+                    btn.classList.add('unlocked');
+                } else {
+                    btn.classList.remove('unlocked');
+                }
+            });
+        }
+
+        showLevelNotify(text) {
+            this.levelNotifyEl.innerText = text;
+            this.levelNotifyEl.classList.add('show-notify');
+            setTimeout(() => {
+                this.levelNotifyEl.classList.remove('show-notify');
+            }, 2000);
+        }
+
+        stop() {
+            this.isRunning = false;
+            cancelAnimationFrame(this.animationId);
+            this.finalScoreEl.innerText = this.score;
+            this.gameOverScreen.classList.remove('hidden');
+            this.pauseBtn.style.display = 'none';
+        }
+
+        shoot(val) {
+            if (!this.isRunning || this.isPaused) return;
+            if (!this.unlockedButtons.has(val)) return;
+
+            const targets = this.enemies
+                .filter(e => {
+                    if (e.type === 'pair') {
+                        return (e.val1 % val === 0 && e.val2 % val === 0);
+                    } else {
+                        return e.value % val === 0;
+                    }
+                })
+                .sort((a, b) => b.y - a.y);
+            
+            if (targets.length > 0) {
+                const target = targets[0];
+                if (this.combinations[val]) {
+                    this.shootSpecial(val, target);
+                    this.sound.playSpecialShoot(); // 特殊発射音
+                } else {
+                    this.sound.playShoot(); // 通常発射音
+                    this.bullets.push({
+                        x: this.player.x,
+                        y: this.player.y - 20,
+                        value: val,
+                        radius: 12, // 少し小さく
+                        speed: 20,
+                        color: this.getBtnColor(val),
+                        target: target,
+                        state: 'active'
+                    });
+                }
+            } else {
+                this.triggerPenalty();
+            }
+        }
+
+        shootSpecial(val, target) {
+            const parts = this.combinations[val]; 
+            const mergeY = this.player.y - 100;
+            const mergeX = this.player.x;
+            
+            this.bullets.push({
+                x: this.player.x - 60, y: this.player.y, value: parts[0],
+                radius: 8, speed: 10, color: this.getBtnColor(parts[0]),
+                target: target, mergeTarget: {x: mergeX, y: mergeY},
+                state: 'merging_left', finalValue: val, finalColor: this.getBtnColor(val)
+            });
+
+            this.bullets.push({
+                x: this.player.x + 60, y: this.player.y, value: parts[1],
+                radius: 8, speed: 10, color: this.getBtnColor(parts[1]),
+                target: target, mergeTarget: {x: mergeX, y: mergeY},
+                state: 'merging_right', finalValue: val, finalColor: this.getBtnColor(val)
+            });
+        }
+        
+        triggerPenalty() {
+            this.sound.playError(); // エラー音
+            
+            this.penaltyOverlay.classList.remove('penalty-active');
+            void this.penaltyOverlay.offsetWidth;
+            this.penaltyOverlay.classList.add('penalty-active');
+            
+            this.missFeedback.classList.remove('show-miss');
+            void this.missFeedback.offsetWidth;
+            this.missFeedback.classList.add('show-miss');
+            
+            if (navigator.vibrate) navigator.vibrate(200);
+        }
+
+        handleInput(e) {
+            if (!this.isRunning || this.isPaused) return;
+            let val = 0;
+            switch(e.key) {
+                case '2': val = 2; break;
+                case '3': val = 3; break;
+                case '5': val = 5; break;
+                case '7': val = 7; break;
+                case 'q': case 'Q': val = 11; break;
+                case 'w': case 'W': val = 13; break;
+                case '4': val = 4; break;
+                case '6': val = 6; break;
+                case '8': val = 8; break;
+                case '9': val = 9; break;
+            }
+            if (val > 0) this.shoot(val);
+        }
+        
+        gcd(a, b) {
+            if (b === 0) return a;
+            return this.gcd(b, a % b);
+        }
+
+        spawnBoss() {
+            const isPairBoss = Math.random() < 0.5;
+            if (isPairBoss) {
+                this.spawnPairBoss();
+            } else {
+                this.spawnSingleBoss();
+            }
+            this.queueBossSpawn = false;
+        }
+        
+        spawnPairBoss() {
+            let commonP = 2;
+            if (this.activePrimes.length > 1) {
+                commonP = this.activePrimes[Math.floor(Math.random() * this.activePrimes.length)];
+            }
+            
+            let val1, val2;
+            let retry = 0;
+
+            do {
+                val1 = commonP * this.activePrimes[Math.floor(Math.random() * this.activePrimes.length)];
+                val2 = commonP * this.activePrimes[Math.floor(Math.random() * this.activePrimes.length)];
+                if (Math.random() < 0.6) val1 *= (Math.random() < 0.5 ? 2 : 3);
+                if (Math.random() < 0.6) val2 *= (Math.random() < 0.5 ? 2 : 3);
+                if(val1 > 300) val1 = 100 + Math.floor(Math.random()*100);
+                if(val2 > 300) val2 = 100 + Math.floor(Math.random()*100);
+                if (this.gcd(val1, val2) === 1) {
+                    val1 *= commonP; val2 *= commonP;
+                }
+                retry++;
+            } while (val1 === val2 && retry < 10);
+            
+            if (val1 === val2) { val2 += commonP; }
+
+            const x = this.width / 2;
+            const radius = 40;
+            
+            this.showBossWarning();
+
+            this.enemies.push({
+                id: Math.random(),
+                x: x, y: -100,
+                type: 'pair',
+                val1: val1, val2: val2,
+                maxVal: val1 + val2,
+                radius: radius,
+                speed: 0.7,
+                hitFlash: 0,
+                isBoss: true
+            });
+        }
+
+        spawnSingleBoss() {
+            let val = 100;
+            for(let k=0; k<20; k++){
+                let tempVal = 1;
+                let count = 3 + Math.floor(Math.random() * 3);
+                if (this.activePrimes.length === 0) this.activePrimes = [2, 3];
+                for(let i=0; i<count; i++) tempVal *= this.activePrimes[Math.floor(Math.random() * this.activePrimes.length)];
+                if (tempVal >= 100 && tempVal <= 300) { val = tempVal; break; }
+            }
+            if(val < 100 || val > 300) {
+                val = 2 * 2 * 3 * 3 * 3; 
+                if (this.activePrimes.includes(5)) val = 2 * 2 * 5 * 5; 
+            }
+
+            const radius = 60; 
+            const x = this.width / 2; 
+            
+            this.showBossWarning();
+
+            this.enemies.push({
+                id: Math.random(),
+                x: x, y: -100,
+                type: 'single',
+                value: val, maxVal: val,
+                radius: radius,
+                speed: 0.8, 
+                hitFlash: 0,
+                isBoss: true
+            });
+        }
+        
+        showBossWarning() {
+            this.bossWarningEl.classList.remove('boss-anim');
+            void this.bossWarningEl.offsetWidth;
+            this.bossWarningEl.classList.add('boss-anim');
+            // 警告音
+            this.sound.playTone(150, 'sawtooth', 0.5, 0.3, -50);
+            setTimeout(()=>this.sound.playTone(150, 'sawtooth', 0.5, 0.3, -50), 500);
+        }
+
+        spawnEnemy() {
+            if (this.enemies.some(e => e.isBoss)) return;
+            if (this.queueBossSpawn) { this.spawnBoss(); return; }
+
+            let val = 1;
+            let retry = 0;
+            if (this.activePrimes.length === 0) this.activePrimes = [2, 3];
+
+            while(retry < 10) {
+                val = 1;
+                let factorCount;
+                if (this.score < 10) factorCount = Math.random() < 0.5 ? 1 : 2; 
+                else factorCount = 2 + Math.floor(Math.random() * 2); 
+                for (let i = 0; i < factorCount; i++) val *= this.activePrimes[Math.floor(Math.random() * this.activePrimes.length)];
+                if (val < 100) break;
+                retry++;
+            }
+            if (val >= 100) val = 2 * 3;
+
+            const radius = 30 + (val.toString().length * 2); 
+            const x = Math.random() * (this.width - radius * 2) + radius;
+            
+            let enemySpeed = 0.6 + (this.score * 0.03);
+            if (enemySpeed > 2.5) enemySpeed = 2.5;
+
+            this.enemies.push({
+                id: Math.random(),
+                x: x, y: -50,
+                type: 'single',
+                value: val, maxVal: val,
+                radius: radius,
+                speed: enemySpeed,
+                hitFlash: 0,
+                isBoss: false
+            });
+        }
+
+        update(timestamp) {
+            const dt = timestamp - this.lastTime;
+            this.lastTime = timestamp;
+
+            this.spawnTimer += dt;
+            if (this.spawnTimer > this.spawnInterval) {
+                this.spawnEnemy();
+                this.spawnTimer = 0;
+                if (!this.enemies.some(e => e.isBoss)) {
+                     if (this.spawnInterval > 800) this.spawnInterval -= 30;
+                }
+            }
+
+            for (let i = this.bullets.length - 1; i >= 0; i--) {
+                const b = this.bullets[i];
+                
+                if (b.state && b.state.startsWith('merging')) {
+                    const dx = b.mergeTarget.x - b.x;
+                    const dy = b.mergeTarget.y - b.y;
+                    const dist = Math.hypot(dx, dy);
+                    
+                    if (dist < 10) { 
+                        if (b.state === 'merging_left') {
+                             this.sound.playShoot(); // 合体完了で発射音
+                             this.bullets.push({
+                                x: b.mergeTarget.x, y: b.mergeTarget.y,
+                                value: b.finalValue,
+                                radius: 20, speed: 18, color: b.finalColor,
+                                target: b.target, state: 'active'
+                            });
+                            this.createParticles(b.mergeTarget.x, b.mergeTarget.y, 10, '#fff'); 
+                        }
+                        this.bullets.splice(i, 1);
+                        continue;
+                    } else {
+                        b.x += (dx / dist) * b.speed;
+                        b.y += (dy / dist) * b.speed;
+                        continue;
+                    }
+                }
+
+                if (b.target && this.enemies.includes(b.target)) {
+                    const dx = b.target.x - b.x;
+                    const dy = b.target.y - b.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < b.speed) { b.x = b.target.x; b.y = b.target.y; } 
+                    else { b.x += (dx / dist) * b.speed; b.y += (dy / dist) * b.speed; }
+                } else {
+                    b.y -= b.speed;
+                }
+
+                if (b.y < -50 || b.y > this.height + 50) {
+                    this.bullets.splice(i, 1);
+                    continue;
+                }
+
+                const e = b.target;
+                if (e && this.enemies.includes(e)) {
+                    let hitRadius = e.radius;
+                    if (e.type === 'pair') hitRadius += 30;
+
+                    const dist = Math.hypot(b.x - e.x, b.y - e.y);
+                    if (dist < b.radius + hitRadius) {
+                        this.sound.playHit(); // ヒット音
+
+                        if (e.type === 'single') {
+                            if (e.value % b.value === 0) {
+                                e.value = e.value / b.value;
+                                e.hitFlash = 10;
+                                e.y -= e.isBoss ? 5 : 25; 
+                                this.createParticles(e.x, e.y, 8, b.color);
+        
+                                if (e.value === 1) {
+                                    const pts = e.isBoss ? 5 : 1;
+                                    this.score += pts;
+                                    this.scoreEl.innerText = this.score;
+                                    
+                                    if(e.isBoss) this.sound.playBossExplosion();
+                                    else this.sound.playExplosion();
+
+                                    this.createParticles(e.x, e.y, e.isBoss ? 60 : 30, '#fff');
+                                    this.checkLevelProgression();
+                                    const idx = this.enemies.indexOf(e);
+                                    if (idx > -1) this.enemies.splice(idx, 1);
+                                }
+                            } else {
+                                this.createParticles(b.x, b.y, 5, '#aaa');
+                            }
+                        } else if (e.type === 'pair') {
+                            if (e.val1 % b.value === 0 && e.val2 % b.value === 0) {
+                                e.val1 /= b.value;
+                                e.val2 /= b.value;
+                                e.hitFlash = 10;
+                                e.y -= 5;
+                                this.createParticles(e.x, e.y, 10, b.color);
+                                
+                                if (this.gcd(e.val1, e.val2) === 1) {
+                                    this.createParticles(e.x, e.y, 20, '#fff'); 
+                                    this.sound.playExplosion(); // 分離音
+                                    
+                                    if (e.val1 === 1 && e.val2 === 1) {
+                                        this.score += 10;
+                                        this.scoreEl.innerText = this.score;
+                                        this.sound.playBossExplosion();
+                                        this.createParticles(e.x, e.y, 50, '#fff');
+                                        this.checkLevelProgression();
+                                    } else {
+                                        if (e.val1 > 1) {
+                                            this.enemies.push({
+                                                id: Math.random(),
+                                                x: e.x - 40, y: e.y - 20,
+                                                type: 'single', value: e.val1, maxVal: e.val1,
+                                                radius: 40, speed: 1.0, hitFlash: 0, isBoss: false 
+                                            });
+                                        } else {
+                                            this.createParticles(e.x - 40, e.y - 20, 20, '#fff');
+                                        }
+                                        if (e.val2 > 1) {
+                                            this.enemies.push({
+                                                id: Math.random(),
+                                                x: e.x + 40, y: e.y + 20,
+                                                type: 'single', value: e.val2, maxVal: e.val2,
+                                                radius: 40, speed: 1.0, hitFlash: 0, isBoss: false
+                                            });
+                                        } else {
+                                            this.createParticles(e.x + 40, e.y + 20, 20, '#fff');
+                                        }
+                                    }
+                                    const idx = this.enemies.indexOf(e);
+                                    if (idx > -1) this.enemies.splice(idx, 1);
+                                }
+                            } else {
+                                this.createParticles(b.x, b.y, 5, '#aaa');
+                            }
+                        }
+                        
+                        this.bullets.splice(i, 1);
+                        continue;
+                    }
+                }
+            }
+
+            for (let i = this.enemies.length - 1; i >= 0; i--) {
+                const e = this.enemies[i];
+                e.y += e.speed * (dt / 16);
+                if (e.hitFlash > 0) e.hitFlash--;
+
+                if (e.y > this.height + e.radius) {
+                    this.takeDamage();
+                    this.enemies.splice(i, 1);
+                }
+            }
+
+            for(let i = this.particles.length - 1; i >= 0; i--) {
+                const p = this.particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.04;
+                if(p.life <= 0) this.particles.splice(i, 1);
+            }
+        }
+
+        draw() {
+            this.ctx.clearRect(0, 0, this.width, this.height);
+            
+            // 背景（星空）
+            this.ctx.fillStyle = this.isPaused ? 'rgba(0,0,0,0.5)' : '#000';
+            this.ctx.fillRect(0, 0, this.width, this.height);
+            
+            // ドットの星を描く
+            this.ctx.fillStyle = '#333';
+            for(let i=0; i<20; i++) {
+                const x = (Date.now() / 50 + i * 100) % this.width;
+                const y = (Date.now() / 20 + i * 134) % this.height;
+                this.ctx.fillRect(x, y, 2, 2);
+            }
+
+            // プレイヤー（レトロ砲台）
+            this.ctx.fillStyle = '#0f0';
+            this.drawPlayer(this.player.x, this.player.y);
+            
+            // 弾
+            this.bullets.forEach(b => {
+                this.ctx.fillStyle = b.color;
+                // ドット弾
+                this.ctx.fillRect(b.x - b.radius/2, b.y - b.radius/2, b.radius, b.radius);
+                
+                this.ctx.fillStyle = '#000';
+                this.ctx.font = '10px "Press Start 2P"';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                if(b.radius > 10) this.ctx.fillText(b.value, b.x, b.y);
+            });
+
+            // 敵
+            this.enemies.forEach(e => {
+                if (e.type === 'single') {
+                    this.drawInvader(e.x, e.y, e.radius, e.value, e.hitFlash > 0, e.isBoss);
+                } else if (e.type === 'pair') {
+                    // 鎖（エネルギー）
+                    const gap = 35;
+                    this.ctx.strokeStyle = (Math.random() > 0.5) ? '#0ff' : '#f0f'; // 点滅するエネルギー
+                    this.ctx.lineWidth = 4;
+                    this.ctx.setLineDash([5, 5]);
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(e.x - gap, e.y);
+                    this.ctx.lineTo(e.x + gap, e.y);
+                    this.ctx.stroke();
+                    this.ctx.setLineDash([]);
+
+                    this.drawInvader(e.x - gap, e.y, e.radius, e.val1, e.hitFlash > 0, true);
+                    this.drawInvader(e.x + gap, e.y, e.radius, e.val2, e.hitFlash > 0, true);
+                    
+                    this.ctx.font = '10px "Press Start 2P"';
+                    this.ctx.fillStyle = '#f0f';
+                    this.ctx.fillText("PAIR", e.x, e.y - e.radius - 15);
+                }
+            });
+
+            // パーティクル
+            this.particles.forEach(p => {
+                this.ctx.globalAlpha = p.life;
+                this.ctx.fillStyle = p.color;
+                // 四角いパーティクル
+                this.ctx.fillRect(p.x, p.y, p.radius, p.radius);
+                this.ctx.globalAlpha = 1.0;
+            });
+        }
+        
+        // プレイヤーのドット絵描画
+        drawPlayer(x, y) {
+            const size = 4;
+            const shape = [
+                "   X   ",
+                "  XXX  ",
+                " XXXXX ",
+                "XXXXXXX"
+            ];
+            this.ctx.fillStyle = '#0f0';
+            for(let row=0; row<shape.length; row++) {
+                for(let col=0; col<shape[row].length; col++) {
+                    if(shape[row][col] === 'X') {
+                        this.ctx.fillRect(x - 14 + col*size, y - 20 + row*size, size, size);
+                    }
+                }
+            }
+        }
+        
+        // インベーダー風の敵描画
+        drawInvader(x, y, r, val, isHit, isBoss) {
+            const size = r * 2;
+            const half = size / 2;
+            
+            // 枠
+            this.ctx.strokeStyle = isHit ? '#fff' : (isBoss ? '#f00' : '#0f0');
+            this.ctx.lineWidth = isBoss ? 4 : 2;
+            this.ctx.strokeRect(x - half, y - half, size, size);
+            
+            // 中身（簡易的なデジタル模様）
+            this.ctx.fillStyle = isHit ? '#fff' : (isBoss ? 'rgba(255,0,0,0.2)' : 'rgba(0,255,0,0.1)');
+            this.ctx.fillRect(x - half, y - half, size, size);
+            
+            // 四隅のアクセント
+            this.ctx.fillStyle = isHit ? '#fff' : (isBoss ? '#f00' : '#0f0');
+            const d = 4;
+            this.ctx.fillRect(x - half, y - half, d, d);
+            this.ctx.fillRect(x + half - d, y - half, d, d);
+            this.ctx.fillRect(x - half, y + half - d, d, d);
+            this.ctx.fillRect(x + half - d, y + half - d, d, d);
+
+            // 数字
+            this.ctx.fillStyle = isHit ? '#000' : '#fff';
+            // フォントサイズ調整
+            const fontSize = isBoss ? r * 0.5 : r * 0.6;
+            this.ctx.font = `${fontSize}px "Press Start 2P"`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(val, x, y + 2);
+            
+            if (isBoss && !arguments[5]) { // arguments[5] is isBoss flag passed from pair check
+                 // Boss label is handled outside for Pair boss
+                 this.ctx.font = '10px "Press Start 2P"';
+                 this.ctx.fillStyle = '#f00';
+                 this.ctx.fillText("BOSS", x, y - r - 10);
+            }
+        }
+
+        loop(timestamp) {
+            if (!this.isRunning) return;
+            if (this.isPaused) return; 
+            
+            this.update(timestamp);
+            this.draw();
+            this.animationId = requestAnimationFrame(t => this.loop(t));
+        }
+
+        createParticles(x, y, count, color) {
+            for(let i=0; i<count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 5 + 2;
+                this.particles.push({
+                    x: x, y: y,
+                    vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+                    life: 1.0, color: color, radius: Math.random() * 6 + 2
+                });
+            }
+        }
+        
+        getBtnColor(val) {
+            const colors = {
+                2: '#e53935', 3: '#1e88e5', 5: '#fdd835', 7: '#d000f0', 11: '#00e5ff', 13: '#ff9100',
+                4: '#3f51b5', 6: '#00acc1', 8: '#673ab7', 9: '#e91e63', 10: '#4caf50', 12: '#ff9800'
+            };
+            return colors[val] || '#fff';
+        }
+    }
+
+    const game = new Game();
+</script>
+</body>
+</html>
